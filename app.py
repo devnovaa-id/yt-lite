@@ -7,8 +7,6 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import time
 from transformers import pipeline
-from sklearn.linear_model import LinearRegression
-import json
 
 # Konfigurasi API
 CRYPTO_PANIC_API_KEY = "d3b14a16db908837c9058ebffadf852f6cf7a269"
@@ -17,9 +15,10 @@ CRYPTO_PANIC_BASE_URL = "https://cryptopanic.com/api/developer/v2"
 
 # Konfigurasi halaman
 st.set_page_config(
-    page_title="🤖 AI Crypto Analyst Pro",
-    page_icon="🤖",
-    layout="wide"
+    page_title="🤖 Crypto Analyst Pro",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
 # Inisialisasi model AI
@@ -28,14 +27,12 @@ def load_ai_models():
     sentiment_model = pipeline("sentiment-analysis", model="distilbert-base-uncased-finetuned-sst-2-english")
     return sentiment_model
 
-# Fungsi untuk mendapatkan data crypto dari CoinGecko
+# Fungsi untuk mendapatkan data crypto
 @st.cache_data(ttl=300)
 def get_crypto_data():
-    base_url = "https://api.coingecko.com/api/v3"
-    endpoint = f"/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1&sparkline=false&x_cg_demo_api_key={COINGECKO_API_KEY}"
-    
+    url = f"https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1&sparkline=false&x_cg_demo_api_key={COINGECKO_API_KEY}"
     try:
-        response = requests.get(base_url + endpoint, timeout=15)
+        response = requests.get(url, timeout=15)
         response.raise_for_status()
         return response.json()
     except Exception as e:
@@ -45,11 +42,9 @@ def get_crypto_data():
 # Fungsi untuk mendapatkan data historis
 @st.cache_data(ttl=3600)
 def get_historical_data(coin_id, days=365):
-    base_url = "https://api.coingecko.com/api/v3"
-    endpoint = f"/coins/{coin_id}/market_chart?vs_currency=usd&days={days}&x_cg_demo_api_key={COINGECKO_API_KEY}"
-    
+    url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart?vs_currency=usd&days={days}&x_cg_demo_api_key={COINGECKO_API_KEY}"
     try:
-        data = requests.get(base_url + endpoint, timeout=15).json()
+        data = requests.get(url, timeout=15).json()
         prices = data.get('prices', [])
         if not prices:
             return pd.DataFrame()
@@ -61,16 +56,15 @@ def get_historical_data(coin_id, days=365):
         st.error(f"Error mengambil data historis: {e}")
         return pd.DataFrame()
 
-# Fungsi untuk mendapatkan berita dari CryptoPanic
+# Fungsi untuk mendapatkan berita crypto
 @st.cache_data(ttl=600)
-def get_crypto_news(coin_symbol=None, filter_type="rising", public=True):
+def get_crypto_news(coin_symbol=None, filter_type="rising"):
     endpoint = f"{CRYPTO_PANIC_BASE_URL}/posts/"
     params = {
         "auth_token": CRYPTO_PANIC_API_KEY,
-        "public": "true" if public else "false",
+        "public": "true",
         "filter": filter_type,
-        "regions": "en",
-        "kind": "news"
+        "regions": "en"
     }
     
     if coin_symbol:
@@ -85,7 +79,7 @@ def get_crypto_news(coin_symbol=None, filter_type="rising", public=True):
         st.error(f"Error mengambil berita: {e}")
         return []
 
-# Fungsi untuk analisis sentimen menggunakan AI
+# Fungsi untuk analisis sentimen
 def analyze_news_sentiment(news_items, sentiment_model):
     if not news_items:
         return []
@@ -99,7 +93,6 @@ def analyze_news_sentiment(news_items, sentiment_model):
         try:
             sentiment = sentiment_model(title)[0]
             results.append({
-                'id': item.get('id'),
                 'title': title,
                 'sentiment': sentiment['label'],
                 'score': sentiment['score'],
@@ -108,30 +101,10 @@ def analyze_news_sentiment(news_items, sentiment_model):
                 'published_at': item.get('published_at', ''),
                 'votes': item.get('votes', {})
             })
-        except Exception as e:
-            st.error(f"Error analisis sentimen: {e}")
+        except:
+            continue
     
     return results
-
-# Fungsi untuk prediksi harga menggunakan AI
-def predict_price_with_ai(df, days_to_predict=30):
-    try:
-        df = df.copy()
-        df['days'] = (df['date'] - df['date'].min()).dt.days
-        X = df[['days']].values
-        y = df['price'].values
-        
-        model = LinearRegression()
-        model.fit(X, y)
-        
-        future_days = np.array(range(df['days'].max() + 1, df['days'].max() + days_to_predict + 1))
-        future_dates = [df['date'].max() + timedelta(days=i) for i in range(1, days_to_predict + 1)]
-        predicted_prices = model.predict(future_days.reshape(-1, 1))
-        
-        return future_dates, predicted_prices
-    except Exception as e:
-        st.error(f"Error prediksi AI: {e}")
-        return [], []
 
 # Fungsi untuk indikator teknikal
 def calculate_technical_indicators(df):
@@ -152,128 +125,39 @@ def calculate_technical_indicators(df):
         df['RSI'] = 100 - (100 / (1 + rs))
         
         return df
-    except Exception as e:
-        st.error(f"Error perhitungan indikator: {e}")
+    except:
         return df
 
-# Fungsi untuk analisis sentimen pasar
-def get_market_sentiment():
-    try:
-        news_items = get_crypto_news(filter_type="hot")
-        if not news_items:
-            return 0.5, 0, 0, 0  # Netral jika tidak ada data
-        
-        positive = 0
-        negative = 0
-        important = 0
-        
-        for item in news_items:
-            votes = item.get('votes', {})
-            positive += votes.get('positive', 0)
-            negative += votes.get('negative', 0)
-            important += votes.get('important', 0)
-        
-        total_votes = positive + negative
-        if total_votes == 0:
-            return 0.5, positive, negative, important
-            
-        sentiment_score = positive / total_votes
-        return sentiment_score, positive, negative, important
-    except:
-        return 0.5, 0, 0, 0
-
 # Tampilan UI
-st.title("🤖 AI Crypto Analyst Pro")
+st.title("📊 Crypto Analyst Pro")
 st.markdown("""
-### Platform Analisis Cryptocurrency Berbasis AI
-Analisis prediktif, sentimen pasar, dan indikator teknikal berbasis AI
+### Platform Analisis Cryptocurrency Terintegrasi
+Pilih cryptocurrency untuk melihat analisis teknikal, sentimen pasar, dan rekomendasi trading
 """)
 
 # Ambil model AI
 sentiment_model = load_ai_models()
 
-# Sidebar - Analisis Pasar
-st.sidebar.header("📊 Analisis Pasar")
-
-# Analisis sentimen pasar secara real-time
-with st.sidebar.expander("📈 Sentimen Pasar"):
-    sentiment_score, positive, negative, important = get_market_sentiment()
-    sentiment_percent = int(sentiment_score * 100)
-    
-    st.metric("Skor Sentimen Pasar", f"{sentiment_percent}%")
-    st.progress(sentiment_percent / 100)
-    
-    if sentiment_score > 0.7:
-        st.success("✅ Sentimen pasar sangat positif")
-    elif sentiment_score < 0.3:
-        st.error("❌ Sentimen pasar sangat negatif")
-    else:
-        st.info("➖ Sentimen pasar netral")
-    
-    st.divider()
-    st.metric("Votes Positif", positive)
-    st.metric("Votes Negatif", negative)
-    st.metric("Berita Penting", important)
-
-# Top 5 Berita Terkini
-with st.sidebar.expander("📰 Berita Terkini"):
-    market_news = get_crypto_news(filter_type="rising")[:5]
-    for item in market_news:
-        title = item.get('title', 'No title')
-        source = item.get('source', {}).get('title', 'Unknown')
-        
-        st.markdown(f"**{title}**")
-        st.caption(f"Sumber: {source}")
-        
-        # Tampilkan votes jika ada
-        if 'votes' in item:
-            votes = item['votes']
-            cols = st.columns(3)
-            with cols[0]:
-                st.metric("👍", votes.get('positive', 0))
-            with cols[1]:
-                st.metric("👎", votes.get('negative', 0))
-            with cols[2]:
-                st.metric("⭐", votes.get('important', 0))
-        
-        st.markdown(f"[Baca selengkapnya]({item.get('url', '#')})")
-        st.divider()
+# Sidebar - Pemilihan Cryptocurrency
+st.sidebar.header("🔍 Pilih Cryptocurrency")
 
 # Ambil data crypto
-with st.spinner('Mengambil data terbaru...'):
+with st.spinner('Memuat data cryptocurrency...'):
     crypto_data = get_crypto_data()
 
 if not crypto_data:
-    st.error("Gagal mengambil data cryptocurrency. Silakan coba lagi nanti.")
+    st.error("Gagal memuat data cryptocurrency. Silakan coba lagi nanti.")
     st.stop()
 
 # Konversi ke DataFrame
 df_coins = pd.DataFrame(crypto_data)
-df_coins = df_coins[['id', 'name', 'symbol', 'current_price', 'market_cap', 'total_volume', 
-                     'price_change_percentage_24h', 'high_24h', 'low_24h']]
+coin_list = df_coins['name'].tolist()
 
-# Tampilkan data utama
-st.subheader("📊 Top 20 Cryptocurrency Berdasarkan Market Cap")
-df_display = df_coins.sort_values('market_cap', ascending=False).head(20).copy()
-df_display = df_display.rename(columns={
-    'current_price': 'Harga',
-    'market_cap': 'Market Cap',
-    'total_volume': 'Volume 24h',
-    'price_change_percentage_24h': 'Perubahan 24h'
-})
-
-st.dataframe(df_display.style.format({
-    'Harga': '${:,.2f}',
-    'Market Cap': '${:,.0f}',
-    'Volume 24h': '${:,.0f}',
-    'Perubahan 24h': '{:.2f}%'
-}))
-
-# Pilih cryptocurrency untuk analisis
-st.sidebar.header("🔍 Analisis Detail")
+# Pilih cryptocurrency
 selected_coin = st.sidebar.selectbox(
-    "Pilih Cryptocurrency",
-    df_coins['name']
+    "Cryptocurrency",
+    coin_list,
+    index=coin_list.index('Bitcoin') if 'Bitcoin' in coin_list else 0
 )
 
 # Dapatkan data coin yang dipilih
@@ -281,177 +165,139 @@ coin_data = df_coins[df_coins['name'] == selected_coin].iloc[0]
 coin_id = coin_data['id']
 coin_symbol = coin_data['symbol']
 
-# Tampilkan metrik
-st.sidebar.subheader(f"📈 Statistik {selected_coin}")
+# Tampilkan informasi dasar coin
+st.sidebar.subheader(f"📈 {selected_coin} ({coin_symbol})")
 st.sidebar.metric("Harga Saat Ini", f"${coin_data['current_price']:,.2f}")
 st.sidebar.metric("Perubahan 24 Jam", f"{coin_data['price_change_percentage_24h']:.2f}%")
 st.sidebar.metric("Market Cap", f"${coin_data['market_cap']/1e9:,.2f}B")
 st.sidebar.metric("Volume 24 Jam", f"${coin_data['total_volume']/1e6:,.2f}M")
 
-# Tab untuk berbagai jenis analisis
-tab1, tab2, tab3, tab4 = st.tabs([
-    "📈 Analisis Teknikal", 
-    "🔮 Prediksi AI", 
-    "📰 Sentimen Pasar", 
-    "💡 Rekomendasi AI"
+# Tab utama
+tab1, tab2, tab3 = st.tabs([
+    "📊 Analisis Teknikal", 
+    "📰 Berita & Sentimen", 
+    "💡 Rekomendasi Trading"
 ])
 
 with tab1:
-    st.subheader(f"📈 Analisis Teknikal {selected_coin}")
-    days = st.slider("Jumlah Hari Historis", min_value=30, max_value=365, value=90)
+    st.header(f"Analisis Teknikal {selected_coin}")
     
-    with st.spinner('Mengambil data historis...'):
+    col1, col2 = st.columns(2)
+    with col1:
+        days = st.slider("Rentang Waktu (hari)", 30, 365, 90)
+    with col2:
+        show_rsi = st.checkbox("Tampilkan RSI", True)
+    
+    with st.spinner('Memuat data harga...'):
         historical_df = get_historical_data(coin_id, days)
     
     if historical_df.empty:
-        st.warning(f"Tidak dapat mengambil data historis untuk {selected_coin}")
+        st.warning(f"Data historis tidak tersedia untuk {selected_coin}")
     else:
         # Hitung indikator teknikal
         tech_df = calculate_technical_indicators(historical_df)
         
+        # Grafik harga
+        fig, ax1 = plt.subplots(figsize=(12, 6))
+        
         # Plot harga dan moving averages
-        fig, ax = plt.subplots(figsize=(12, 6))
-        ax.plot(tech_df['date'], tech_df['price'], label='Harga', color='blue')
-        ax.plot(tech_df['date'], tech_df['SMA_7'], label='SMA 7 Hari', color='orange')
-        ax.plot(tech_df['date'], tech_df['SMA_30'], label='SMA 30 Hari', color='green')
-        ax.set_title(f'Analisis Teknikal: {selected_coin}', fontsize=16)
-        ax.set_xlabel('Tanggal')
-        ax.set_ylabel('Harga (USD)')
-        ax.legend()
-        ax.grid(True)
+        ax1.plot(tech_df['date'], tech_df['price'], label='Harga', color='blue')
+        ax1.plot(tech_df['date'], tech_df['SMA_7'], label='SMA 7 Hari', color='orange', linestyle='--')
+        ax1.plot(tech_df['date'], tech_df['SMA_30'], label='SMA 30 Hari', color='green', linestyle='--')
+        ax1.set_title(f'Perubahan Harga {selected_coin}', fontsize=16)
+        ax1.set_xlabel('Tanggal')
+        ax1.set_ylabel('Harga (USD)')
+        ax1.legend(loc='upper left')
+        ax1.grid(True)
+        
+        if show_rsi and 'RSI' in tech_df:
+            # Grafik RSI
+            ax2 = ax1.twinx()
+            ax2.plot(tech_df['date'], tech_df['RSI'], label='RSI', color='purple', alpha=0.7)
+            ax2.axhline(70, color='red', linestyle='-', alpha=0.3)
+            ax2.axhline(30, color='green', linestyle='-', alpha=0.3)
+            ax2.fill_between(tech_df['date'], 70, tech_df['RSI'], where=(tech_df['RSI'] > 70), color='red', alpha=0.1)
+            ax2.fill_between(tech_df['date'], 30, tech_df['RSI'], where=(tech_df['RSI'] < 30), color='green', alpha=0.1)
+            ax2.set_ylabel('RSI', color='purple')
+            ax2.tick_params(axis='y', labelcolor='purple')
+            ax2.set_ylim(0, 100)
+        
         st.pyplot(fig)
         
-        # Plot RSI
-        st.subheader("Relative Strength Index (RSI)")
-        fig2, ax2 = plt.subplots(figsize=(12, 4))
-        ax2.plot(tech_df['date'], tech_df['RSI'], label='RSI', color='purple')
-        ax2.axhline(70, color='red', linestyle='--', label='Overbought (70)')
-        ax2.axhline(30, color='green', linestyle='--', label='Oversold (30)')
-        ax2.set_title('RSI (14 Hari)')
-        ax2.legend()
-        ax2.grid(True)
-        st.pyplot(fig2)
-        
-        # Interpretasi RSI
+        # Interpretasi indikator
         if 'RSI' in tech_df and not tech_df['RSI'].isnull().all():
             current_rsi = tech_df['RSI'].iloc[-1]
+            st.subheader("Interpretasi Indikator")
+            
             if current_rsi > 70:
-                st.warning("⚠️ Overbought: Potensi koreksi harga turun")
+                st.warning("⚠️ **Kondisi Overbought (RSI > 70)**")
+                st.write("Harga mungkin terlalu tinggi dan bisa terjadi koreksi penurunan.")
             elif current_rsi < 30:
-                st.success("✅ Oversold: Potensi pemulihan harga naik")
+                st.success("✅ **Kondisi Oversold (RSI < 30)**")
+                st.write("Harga mungkin terlalu rendah dan bisa terjadi pemulihan kenaikan.")
             else:
-                st.info("ℹ️ RSI dalam range normal")
-        else:
-            st.warning("Data RSI tidak tersedia")
+                st.info("ℹ️ **RSI dalam Range Normal (30-70)**")
+                st.write("Tidak ada sinyal kuat dari indikator RSI.")
+            
+            st.metric("Nilai RSI Terkini", f"{current_rsi:.1f}")
 
 with tab2:
-    st.subheader(f"🔮 Prediksi Harga {selected_coin} dengan AI")
-    st.info("Model AI menggunakan regresi linear untuk memprediksi tren harga jangka pendek")
+    st.header(f"Berita & Sentimen {selected_coin}")
     
-    days_hist = st.slider("Data Historis untuk Training Model", min_value=60, max_value=365, value=180)
-    days_predict = st.slider("Jumlah Hari Prediksi", min_value=7, max_value=90, value=30)
-    
-    if st.button("Jalankan Prediksi AI"):
-        with st.spinner('Melatih model AI dan membuat prediksi...'):
-            historical_df = get_historical_data(coin_id, days_hist)
-            if historical_df.empty:
-                st.error("Data historis tidak cukup untuk prediksi")
-            else:
-                future_dates, predicted_prices = predict_price_with_ai(historical_df, days_predict)
-                
-                if not future_dates:
-                    st.error("Gagal membuat prediksi")
-                else:
-                    # Buat plot interaktif
-                    fig = go.Figure()
-                    
-                    # Data historis
-                    fig.add_trace(go.Scatter(
-                        x=historical_df['date'],
-                        y=historical_df['price'],
-                        mode='lines',
-                        name='Harga Historis',
-                        line=dict(color='blue')
-                    ))
-                    
-                    # Prediksi
-                    fig.add_trace(go.Scatter(
-                        x=future_dates,
-                        y=predicted_prices,
-                        mode='lines+markers',
-                        name='Prediksi AI',
-                        line=dict(color='green', dash='dash')
-                    ))
-                    
-                    fig.update_layout(
-                        title=f'Prediksi Harga {selected_coin}',
-                        xaxis_title='Tanggal',
-                        yaxis_title='Harga (USD)',
-                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-                    )
-                    
-                    st.plotly_chart(fig, use_container_width=True)
-                    
-                    # Tampilkan prediksi dalam tabel
-                    prediction_df = pd.DataFrame({
-                        'Tanggal': future_dates,
-                        'Prediksi Harga': predicted_prices
-                    })
-                    st.dataframe(prediction_df.style.format({
-                        'Prediksi Harga': '${:,.2f}'
-                    }))
-
-with tab3:
-    st.subheader(f"📰 Analisis Sentimen Pasar untuk {selected_coin}")
-    
-    # Filter berita
     col1, col2 = st.columns(2)
     with col1:
         filter_type = st.selectbox("Filter Berita", ["rising", "hot", "bullish", "bearish", "important"], index=0)
     with col2:
-        limit = st.slider("Jumlah Berita", 5, 20, 10)
+        news_limit = st.slider("Jumlah Berita", 5, 20, 10)
     
-    if st.button("Analisis Sentimen Berita Terbaru"):
+    if st.button("Muat Berita Terkini", key="load_news"):
         with st.spinner('Mengambil dan menganalisis berita...'):
-            # Dapatkan berita dari CryptoPanic
-            news_items = get_crypto_news(coin_symbol=coin_symbol, filter_type=filter_type)[:limit]
+            # Dapatkan berita
+            news_items = get_crypto_news(coin_symbol=coin_symbol, filter_type=filter_type)[:news_limit]
             
-            # Analisis sentimen dengan AI
+            # Analisis sentimen
             sentiment_results = analyze_news_sentiment(news_items, sentiment_model)
             
             if not sentiment_results:
-                st.error("Tidak dapat mengambil atau menganalisis berita")
+                st.warning("Tidak ada berita terkini yang ditemukan")
             else:
+                # Ringkasan sentimen
                 positive_count = sum(1 for r in sentiment_results if r['sentiment'] == 'POSITIVE')
                 negative_count = sum(1 for r in sentiment_results if r['sentiment'] == 'NEGATIVE')
+                sentiment_score = positive_count / len(sentiment_results) if sentiment_results else 0
                 
-                # Tampilkan ringkasan sentimen
+                st.subheader(f"Analisis Sentimen: {positive_count} 👍 vs {negative_count} 👎")
+                
+                # Progress bar sentimen
+                sentiment_percent = int(sentiment_score * 100)
+                st.progress(sentiment_percent / 100)
+                
                 col1, col2 = st.columns(2)
                 with col1:
-                    st.metric("Berita Positif", positive_count)
+                    st.metric("Persentase Positif", f"{sentiment_percent}%")
                 with col2:
-                    st.metric("Berita Negatif", negative_count)
+                    st.metric("Total Berita", len(sentiment_results))
                 
-                # Plot sentimen
-                fig, ax = plt.subplots(figsize=(8, 4))
-                ax.bar(['Positif', 'Negatif'], [positive_count, negative_count], color=['green', 'red'])
-                ax.set_title('Distribusi Sentimen Berita')
-                st.pyplot(fig)
+                st.divider()
                 
-                # Tampilkan detail berita
-                st.subheader("Detail Analisis Sentimen:")
-                for result in sentiment_results:
+                # Tampilkan berita
+                st.subheader("Berita Terkini")
+                for i, result in enumerate(sentiment_results, 1):
                     sentiment_icon = "✅" if result['sentiment'] == 'POSITIVE' else "❌"
-                    votes = result.get('votes', {})
+                    sentiment_color = "green" if result['sentiment'] == 'POSITIVE' else "red"
                     
-                    with st.expander(f"{sentiment_icon} {result['title']}", expanded=False):
-                        st.write(f"**Sumber:** {result.get('source', 'Tidak diketahui')}")
-                        st.write(f"**Waktu Publikasi:** {result.get('published_at', '')}")
-                        st.write(f"**Skor Sentimen:** {result['score']:.2f}")
+                    with st.expander(f"{i}. {sentiment_icon} {result['title']}", expanded=False):
+                        # Header berita
+                        st.markdown(f"**Sumber:** {result.get('source', 'Tidak diketahui')}")
+                        st.markdown(f"**Waktu:** {result.get('published_at', '')}")
                         
-                        # Tampilkan votes jika ada
-                        if votes:
-                            st.write("**Reaksi Komunitas:**")
+                        # Skor sentimen
+                        st.markdown(f"**Sentimen:** :{sentiment_color}[{result['sentiment']}] (Skor: {result['score']:.2f})")
+                        
+                        # Reaksi komunitas
+                        if result.get('votes'):
+                            votes = result['votes']
+                            st.markdown("**Reaksi Komunitas:**")
                             cols = st.columns(4)
                             with cols[0]:
                                 st.metric("👍 Positif", votes.get('positive', 0))
@@ -462,85 +308,132 @@ with tab3:
                             with cols[3]:
                                 st.metric("💬 Komentar", votes.get('comments', 0))
                         
-                        st.write(f"**Link:** [Baca berita]({result['url']})")
+                        # Link berita
+                        st.markdown(f"[Baca selengkapnya]({result['url']})")
 
-with tab4:
-    st.subheader(f"💡 Rekomendasi AI untuk {selected_coin}")
-    st.info("Rekomendasi berbasis analisis teknikal dan sentimen pasar")
+with tab3:
+    st.header(f"Rekomendasi Trading {selected_coin}")
     
-    if st.button("Buat Rekomendasi"):
-        with st.spinner('Menganalisis data dan membuat rekomendasi...'):
+    if st.button("Buat Analisis & Rekomendasi", type="primary"):
+        with st.spinner('Menganalisis data...'):
             # Dapatkan data historis
             historical_df = get_historical_data(coin_id, 90)
             
+            # Analisis teknikal
             if historical_df.empty:
-                st.error("Tidak dapat membuat rekomendasi tanpa data historis")
+                st.error("Data historis tidak tersedia untuk analisis")
+                st.stop()
+                
+            tech_df = calculate_technical_indicators(historical_df)
+            
+            # Analisis sentimen
+            news_items = get_crypto_news(coin_symbol=coin_symbol, filter_type="hot")
+            sentiment_results = analyze_news_sentiment(news_items, sentiment_model)
+            
+            # Hitung skor sentimen
+            positive_count = sum(1 for r in sentiment_results if r['sentiment'] == 'POSITIVE')
+            total_count = len(sentiment_results) or 1
+            sentiment_score = positive_count / total_count
+            
+            # Nilai indikator
+            current_price = coin_data['current_price']
+            price_change = coin_data['price_change_percentage_24h']
+            
+            if 'RSI' in tech_df and not tech_df['RSI'].isnull().all():
+                current_rsi = tech_df['RSI'].iloc[-1]
             else:
-                # Analisis teknikal
-                tech_df = calculate_technical_indicators(historical_df)
-                current_rsi = tech_df['RSI'].iloc[-1] if 'RSI' in tech_df and not tech_df.empty else 50
-                
-                # Analisis sentimen
-                sentiment_results = analyze_news_sentiment(
-                    get_crypto_news(coin_symbol=coin_symbol, filter_type="hot"), 
-                    sentiment_model
-                )
-                positive_count = sum(1 for r in sentiment_results if r['sentiment'] == 'POSITIVE')
-                total_count = len(sentiment_results) or 1
-                sentiment_score = positive_count / total_count
-                
-                # Buat rekomendasi
-                recommendation = ""
-                confidence = 0
-                reasoning = ""
-                
-                if current_rsi < 40 and sentiment_score > 0.6:
-                    recommendation = "BELI"
-                    confidence = min(85 + int((40 - current_rsi) * 0.5) + int((sentiment_score - 0.6) * 50), 95)
-                    reasoning = f"Kondisi oversold (RSI: {current_rsi:.1f}) dan sentimen pasar positif ({sentiment_score*100:.1f}%)"
-                elif current_rsi > 70 and sentiment_score < 0.4:
-                    recommendation = "JUAL"
-                    confidence = min(80 + int((current_rsi - 70) * 0.5) + int((0.4 - sentiment_score) * 50), 95)
-                    reasoning = f"Kondisi overbought (RSI: {current_rsi:.1f}) dan sentimen pasar negatif ({sentiment_score*100:.1f}%)"
+                current_rsi = 50
+                st.warning("Data RSI tidak tersedia, menggunakan nilai default")
+            
+            # Buat rekomendasi
+            st.subheader("📈 Analisis Kondisi Pasar")
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Harga Saat Ini", f"${current_price:,.2f}")
+            with col2:
+                st.metric("Perubahan 24 Jam", f"{price_change:.2f}%")
+            with col3:
+                st.metric("RSI Terkini", f"{current_rsi:.1f}")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Sentimen Positif", f"{sentiment_score*100:.1f}%")
+                if sentiment_score > 0.7:
+                    st.success("✅ Sentimen pasar sangat positif")
+                elif sentiment_score < 0.3:
+                    st.error("❌ Sentimen pasar sangat negatif")
                 else:
-                    recommendation = "Tahan"
-                    confidence = 75
-                    reasoning = "Tidak ada sinyal kuat untuk membeli atau menjual"
-                
-                # Tampilkan hasil
-                st.subheader(f"Rekomendasi: **{recommendation}**")
+                    st.info("➖ Sentimen pasar netral")
+            
+            with col2:
+                st.metric("Volume 24 Jam", f"${coin_data['total_volume']/1e6:,.2f}M")
+                st.metric("Market Cap", f"${coin_data['market_cap']/1e9:,.2f}B")
+            
+            st.divider()
+            
+            # Rekomendasi trading
+            st.subheader("💡 Rekomendasi Trading")
+            
+            if current_rsi < 35 and sentiment_score > 0.65:
+                st.success("**REKOMENDASI: BELI**")
+                confidence = min(85 + int((35 - current_rsi) + int((sentiment_score - 0.65) * 30), 95)
                 st.metric("Tingkat Kepercayaan", f"{confidence}%")
+                st.write("**Alasan:**")
+                st.write("- Kondisi RSI menunjukkan oversold (harga mungkin terlalu rendah)")
+                st.write("- Sentimen pasar sangat positif")
+                st.write("- Potensi kenaikan harga dalam jangka pendek")
                 
-                st.subheader("Alasan Rekomendasi:")
-                st.write(reasoning)
+            elif current_rsi > 70 and sentiment_score < 0.4:
+                st.error("**REKOMENDASI: JUAL**")
+                confidence = min(80 + int((current_rsi - 70) + int((0.4 - sentiment_score) * 30), 95)
+                st.metric("Tingkat Kepercayaan", f"{confidence}%")
+                st.write("**Alasan:**")
+                st.write("- Kondisi RSI menunjukkan overbought (harga mungkin terlalu tinggi)")
+                st.write("- Sentimen pasar negatif")
+                st.write("- Potensi koreksi harga dalam jangka pendek")
                 
-                st.subheader("Faktor yang Dianalisis:")
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.metric("RSI Terkini", f"{current_rsi:.1f}")
-                    if current_rsi < 40:
-                        st.success("Kondisi Oversold")
-                    elif current_rsi > 70:
-                        st.warning("Kondisi Overbought")
-                    else:
-                        st.info("RSI dalam Range Normal")
-                
-                with col2:
-                    st.metric("Skor Sentimen", f"{sentiment_score:.2f}/1.0")
-                    if sentiment_score > 0.6:
-                        st.success("Sentimen Positif")
-                    elif sentiment_score < 0.4:
-                        st.warning("Sentimen Negatif")
-                    else:
-                        st.info("Sentimen Netral")
+            else:
+                st.info("**REKOMENDASI: TAHAN**")
+                confidence = 70
+                st.metric("Tingkat Kepercayaan", f"{confidence}%")
+                st.write("**Alasan:**")
+                st.write("- Tidak ada sinyal kuat untuk membeli atau menjual")
+                st.write("- Pasar sedang dalam kondisi netral")
+                st.write("- Pantau pergerakan harga untuk sinyal berikutnya")
+            
+            st.divider()
+            
+            # Grafik indikator
+            st.subheader("Visualisasi Kondisi Pasar")
+            
+            fig, ax = plt.subplots(figsize=(10, 4))
+            
+            # Plot garis sentimen
+            ax.plot([0, 1], [sentiment_score, sentiment_score], 'b-', linewidth=3, label='Sentimen')
+            ax.plot([0.3, 0.3], [0, 1], 'r--', alpha=0.5, label='Batas Negatif')
+            ax.plot([0.7, 0.7], [0, 1], 'g--', alpha=0.5, label='Batas Positif')
+            
+            # Plot titik RSI
+            ax.plot(0.5, current_rsi/100, 'ro', markersize=10, label='RSI')
+            
+            ax.set_title('Visualisasi Sentimen vs RSI')
+            ax.set_xlabel('Sentimen Pasar')
+            ax.set_ylabel('RSI (skala 0-1)')
+            ax.set_xlim(0, 1)
+            ax.set_ylim(0, 1)
+            ax.legend()
+            ax.grid(True)
+            
+            st.pyplot(fig)
 
 # Footer
 st.divider()
 st.info("""
-**🤖 Tentang AI Crypto Analyst Pro:**
+**📌 Tentang Crypto Analyst Pro:**
 - **Sumber Data:** CoinGecko API + CryptoPanic API
-- **Fitur Analisis:** Prediksi harga AI + Analisis sentimen + Indikator teknikal
-- **Update Real-time:** Data diperbarui setiap 5 menit
-- **Gratis 100%:** Tanpa biaya berlangganan
+- **Analisis:** Teknikal + Sentimen + AI
+- **Update:** Data diperbarui secara berkala
+- **Penggunaan:** Gratis 100%
 """)
-st.caption(f"Terakhir diperbarui: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+st.caption(f"Terakhir diperbarui: {datetime.now().strftime('%d %B %Y %H:%M')}")
