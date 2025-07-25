@@ -15,7 +15,7 @@ CRYPTO_PANIC_BASE_URL = "https://cryptopanic.com/api/developer/v2"
 
 # Konfigurasi halaman
 st.set_page_config(
-    page_title="🤖 Crypto Analyst Pro",
+    page_title="📊 Crypto Analyst Pro",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -376,8 +376,13 @@ with tab3:
             st.subheader("💡 Rekomendasi Trading")
             
             if current_rsi < 35 and sentiment_score > 0.65:
+                # PERBAIKAN: Perhitungan tingkat kepercayaan yang benar
+                rsi_factor = max(0, 35 - current_rsi)
+                sentiment_factor = max(0, (sentiment_score - 0.65) * 30)
+                confidence = min(85 + rsi_factor + sentiment_factor, 95)
+                confidence = int(round(confidence))
+                
                 st.success("**REKOMENDASI: BELI**")
-                confidence = min(85 + int((35 - current_rsi) + int((sentiment_score - 0.65) * 30), 95)
                 st.metric("Tingkat Kepercayaan", f"{confidence}%")
                 st.write("**Alasan:**")
                 st.write("- Kondisi RSI menunjukkan oversold (harga mungkin terlalu rendah)")
@@ -385,8 +390,13 @@ with tab3:
                 st.write("- Potensi kenaikan harga dalam jangka pendek")
                 
             elif current_rsi > 70 and sentiment_score < 0.4:
+                # PERBAIKAN: Perhitungan tingkat kepercayaan yang benar
+                rsi_factor = max(0, current_rsi - 70)
+                sentiment_factor = max(0, (0.4 - sentiment_score) * 30)
+                confidence = min(80 + rsi_factor + sentiment_factor, 95)
+                confidence = int(round(confidence))
+                
                 st.error("**REKOMENDASI: JUAL**")
-                confidence = min(80 + int((current_rsi - 70) + int((0.4 - sentiment_score) * 30), 95)
                 st.metric("Tingkat Kepercayaan", f"{confidence}%")
                 st.write("**Alasan:**")
                 st.write("- Kondisi RSI menunjukkan overbought (harga mungkin terlalu tinggi)")
@@ -394,8 +404,8 @@ with tab3:
                 st.write("- Potensi koreksi harga dalam jangka pendek")
                 
             else:
-                st.info("**REKOMENDASI: TAHAN**")
                 confidence = 70
+                st.info("**REKOMENDASI: TAHAN**")
                 st.metric("Tingkat Kepercayaan", f"{confidence}%")
                 st.write("**Alasan:**")
                 st.write("- Tidak ada sinyal kuat untuk membeli atau menjual")
