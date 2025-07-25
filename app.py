@@ -10,7 +10,7 @@ import pytz
 from ta.momentum import RSIIndicator, StochasticOscillator
 from ta.trend import EMAIndicator, MACD
 from ta.volatility import BollingerBands
-import threading
+import concurrent.futures
 
 # Konfigurasi API
 BINANCE_API_URL = "https://api.binance.com/api/v3"
@@ -219,6 +219,10 @@ if 'realtime_data' not in st.session_state:
     st.session_state.realtime_data = {}
     st.session_state.last_update = datetime.datetime.now()
 
+# Inisialisasi waktu polling
+if 'last_poll' not in st.session_state:
+    st.session_state.last_poll = time.time()
+
 # Fungsi untuk mendapatkan data real-time dari Binance
 def get_realtime_price(symbol):
     try:
@@ -319,26 +323,29 @@ def get_crypto_news(coin_symbol=None, filter_type="rising"):
         st.error(f"Error fetching news: {e}")
         return []
 
-# Fungsi untuk update data real-time
+# Fungsi untuk update data real-time menggunakan ThreadPoolExecutor
 def update_realtime_data():
     symbols = ["BTC", "ETH", "BNB", "SOL", "XRP", "ADA", "AVAX", "DOGE", "DOT", "MATIC"]
-    while True:
-        try:
+    
+    try:
+        # Menggunakan ThreadPoolExecutor untuk menghindari masalah ScriptRunContext
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            futures = {executor.submit(get_realtime_price, symbol): symbol for symbol in symbols}
             new_data = {}
-            for symbol in symbols:
-                price = get_realtime_price(symbol)
-                if price is not None:
-                    new_data[symbol] = price
-            st.session_state.realtime_data = new_data
-            st.session_state.last_update = datetime.datetime.now()
-        except:
-            pass
-        time.sleep(5)
-
-# Start real-time data update thread
-if 'update_thread' not in st.session_state:
-    st.session_state.update_thread = threading.Thread(target=update_realtime_data, daemon=True)
-    st.session_state.update_thread.start()
+            
+            for future in concurrent.futures.as_completed(futures):
+                symbol = futures[future]
+                try:
+                    price = future.result()
+                    if price is not None:
+                        new_data[symbol] = price
+                except Exception as e:
+                    st.error(f"Error processing {symbol}: {e}")
+        
+        st.session_state.realtime_data = new_data
+        st.session_state.last_update = datetime.datetime.now()
+    except Exception as e:
+        st.error(f"Error in real-time update: {e}")
 
 # Header aplikasi
 st.markdown('<h1 class="header-style">⏱️ Crypto Analyst Pro - M1/M5</h1>', unsafe_allow_html=True)
@@ -745,8 +752,8 @@ with tab3:
         st.warning("Tidak ada berita terkini yang ditemukan")
     else:
         # Ringkasan sentimen
-        positive_news = sum(1 for item in news_items if "bull" in item.get('title', '').lower())
-        negative_news = sum(1 for item in news_items if "bear" in item.get('title', '').lower())
+        positive_news = sum(1 for item in news_items if "bull" in item.get('title', '').lower() or "up" in item.get('title', '').lower())
+        negative_news = sum(1 for item in news_items if "bear" in item.get('title', '').lower() or "down" in item.get('title', '').lower())
         sentiment_score = positive_news / len(news_items) if news_items else 0.5
         
         # Visualisasi sentimen
@@ -853,3 +860,10 @@ st_autorefresh.markdown("""
     }, 30000);
 </script>
 """, unsafe_allow_html=True)
+
+# Update real-time data setiap 5 detik
+current_time = time.time()
+if current_time - st.session_state.last_poll > 5:  # Update setiap 5 detik
+    update_realtime_data()
+    st.session_state.last_poll = current_time
+    st.experimental_rerun()
