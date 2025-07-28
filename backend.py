@@ -136,6 +136,7 @@ class CryptoTradingSystem:
                 (macd_buy | grid_buy)
             )
             
+            # PERBAIKAN DI SINI: Tanda kurung tidak seimbang
             sell_conditions = (
                 trend_down & 
                 momentum_sell & 
@@ -143,7 +144,7 @@ class CryptoTradingSystem:
                 valid_volatility & 
                 volume_spike & 
                 bear_candle & 
-                (macd_sell | grid_sell))
+                (macd_sell | grid_sell)  # Diperbaiki
             )
             
             recommendation = np.where(
