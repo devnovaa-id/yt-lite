@@ -45,7 +45,9 @@ limit = st.sidebar.slider("Jumlah Data", 100, 1000, 500)
 
 if st.sidebar.button("Analisis Sekarang") and st.session_state.bot:
     with st.spinner("Menganalisis data pasar..."):
-        st.session_state.analysis = st.session_state.bot.get_trading_recommendation(symbol, timeframe, limit)
+        df, analysis = st.session_state.bot.get_trading_recommendation(symbol, timeframe, limit)
+        st.session_state.df = df
+        st.session_state.analysis = analysis
         st.session_state.last_update = datetime.now()
 
 # Toggle real-time
@@ -129,10 +131,8 @@ if st.session_state.analysis and 'last_close' in st.session_state.analysis:
 
 # Grafik analisis
 if st.session_state.analysis and 'last_close' in st.session_state.analysis:
-    # Buat grafik candlestick interaktif
     fig = go.Figure()
     
-    # Candlestick
     fig.add_trace(go.Candlestick(
         x=st.session_state.df['timestamp'],
         open=st.session_state.df['open'],
@@ -142,7 +142,6 @@ if st.session_state.analysis and 'last_close' in st.session_state.analysis:
         name='Harga'
     ))
     
-    # EMA
     fig.add_trace(go.Scatter(
         x=st.session_state.df['timestamp'],
         y=st.session_state.df['EMA_FAST'],
@@ -159,7 +158,6 @@ if st.session_state.analysis and 'last_close' in st.session_state.analysis:
         line=dict(color='orange', width=2)
     ))
     
-    # Dynamic Grid
     fig.add_trace(go.Scatter(
         x=st.session_state.df['timestamp'],
         y=st.session_state.df['GRID_UP'],
@@ -185,7 +183,6 @@ if st.session_state.analysis and 'last_close' in st.session_state.analysis:
         fill='tonexty'
     ))
     
-    # Rekomendasi trading
     last_rec = st.session_state.analysis['recommendation']
     last_close = st.session_state.analysis['last_close']
     if last_rec != "TUNGGU / NO TRADE":
@@ -210,10 +207,8 @@ if st.session_state.analysis and 'last_close' in st.session_state.analysis:
     )
     st.plotly_chart(fig, use_container_width=True)
     
-    # Grafik indikator
     fig2 = go.Figure()
     
-    # RSI
     fig2.add_trace(go.Scatter(
         x=st.session_state.df['timestamp'],
         y=st.session_state.df['RSI'],
@@ -225,7 +220,6 @@ if st.session_state.analysis and 'last_close' in st.session_state.analysis:
     fig2.add_hline(y=30, line_dash="dash", line_color="green")
     fig2.add_hline(y=70, line_dash="dash", line_color="red")
     
-    # MACD
     fig2.add_trace(go.Bar(
         x=st.session_state.df['timestamp'],
         y=st.session_state.df['MACD'],
@@ -261,21 +255,22 @@ if st.session_state.analysis and 'last_close' in st.session_state.analysis:
     )
     st.plotly_chart(fig2, use_container_width=True)
 
-# Real-time handling
+# Perbaikan real-time handler
 def handle_realtime_message(msg):
     try:
-        if msg['e'] == 'kline' and msg['k']['x']:  # Hanya saat candle tertutup
+        if msg['e'] == 'kline' and msg['k']['x']:
             st.session_state.last_update = datetime.now()
             if st.session_state.bot:
-                st.session_state.analysis = st.session_state.bot.get_trading_recommendation(symbol, timeframe, limit)
+                df, analysis = st.session_state.bot.get_trading_recommendation(symbol, timeframe, limit)
+                st.session_state.df = df
+                st.session_state.analysis = analysis
                 st.rerun()
     except Exception as e:
         st.error(f"Error in real-time handler: {e}")
 
-# Aktifkan/matikan real-time
 if realtime_toggle and st.session_state.bot:
     if not st.session_state.realtime_active:
-        st.session_state.socket_name = st.session_state.bot.start_realtime(symbol, timeframe, handle_realtime_message)
+        st.session_state.socket_name = st.session_state.bot.start_realtime_analysis(symbol, timeframe, handle_realtime_message)
         st.session_state.realtime_active = True
         st.sidebar.success("Analisis real-time diaktifkan!")
 else:
@@ -284,16 +279,13 @@ else:
         st.session_state.realtime_active = False
         st.sidebar.info("Analisis real-time dimatikan")
 
-# Auto-refresh untuk real-time
 if st.session_state.realtime_active:
-    time.sleep(1)  # Refresh setiap 1 detik
+    time.sleep(1)
     st.rerun()
 
-# Footer
 st.markdown("---")
 st.caption("© 2024 Sistem Trading Crypto Pro | Binance API | Real-time Analysis")
 
-# Instruksi penggunaan
 st.sidebar.markdown("""
 ## 📖 Panduan Penggunaan
 1. Masukkan API Key Binance
