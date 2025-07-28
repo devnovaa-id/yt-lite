@@ -1,7 +1,7 @@
 python-binance==1.0.29
-pandas==2.2.2
-numpy==1.26.4
-PyWavelets==1.5.0
-TA-Lib==0.4.0
-streamlit==1.35.0
-plotly==5.22.0
+pandas==2.3.1
+numpy==2.3.2
+PyWavelets==1.8.0
+streamlit==1.47.1
+plotly==6.2.0
+ta==0.11.0
